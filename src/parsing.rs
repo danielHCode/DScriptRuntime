@@ -1,0 +1,4 @@
+mod files;
+
+fn t() {
+}

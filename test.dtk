@@ -1,0 +1,17 @@
+func main/add std/num std/num endArgs std/num do
+
+
+@List 3
+@Object x y name #
+
+
+mapArg 0 x
+mapArg 1 y
+
+load x
+load y
+binary add
+call std/io/print 1
+ret
+
+end
