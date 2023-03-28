@@ -1,47 +1,64 @@
-extern crate core;
+use std::{process::exit, env};
 
-use crate::Operation::While;
-use crate::runtime::{EqualityCheck, execute_std, Function, Operation, Type};
-use crate::runtime::BinaryOpCode::{Add};
+use parsing::parse_file;
+use runtime::execute_std;
+
+use crate::runtime::{EqualityCheck, Function, Operation, Type};
 
 
 mod runtime;
 mod parsing;
 
+struct RuntimeConfig {
+    debug_log: bool,
+    debugger: bool,
+    functions: Vec<Function>
+}
+
 fn main() {
-    let x = "x".to_string();
+    let args: Vec<String> = env::args().collect::<Vec<String>>()[1..].to_vec();
+    let config = match parse_command_args(&args) {
+        Ok(v) => v,
+        Err(s) => handle_error(s)
+    };
+    interpret(config);
+}
 
-    execute_std(vec![
-        Function {
-            signature: "main/main".to_string(),
-            args: Some(vec![]),
-            instructions: vec![
-                /*
-                Operation::LoadConstNum(1.0),
-                Operation::SetVar(x.to_string()),
-                While {condition: vec![
-                    Operation::LoadConstNum(1000000.0),
-                    Operation::LoadVar(x.to_string()),
-                    Operation::EqualityCheck(EqualityCheck::Gt),
-                    Operation::Return
-                ], content: vec![
-                    Operation::LoadVar(x.to_string()),
-                    Operation::LoadConstNum(1.0),
-                    Operation::BinaryOp(Add),
-                    Operation::SetVar(x.to_string()),
-                ]},
-                Operation::LoadVar(x.to_string()),
-                */
-                Operation::LoadConstNum(679.9),
-                Operation::LoadConstNum(679.9),
-                Operation::LoadConstNum(679.9),
+fn parse_command_args(args: &Vec<String>) -> Result<RuntimeConfig, String> {
+    let mut debug_log = false;
+    let mut debugger = false;
+    let mut functions = runtime::std_lib::get_std_library();
+    for arg in args {
+        match arg.as_str() {
+            "--debugLog" => debug_log=true,
+            "--debug" => debugger = true,
+            source => {
+                functions.extend(parse_file(source.to_string())?)
+            }
+        };
+    };
 
-                Operation::CallFunction {signature: "*:as_string".to_string(), argc: 1},
-                Operation::CallFunction {signature: "std/io/print".to_string(), argc: 1},
-            ],
-            return_type: Type::Void
-        }
-    ], "main/main")
+    Ok(RuntimeConfig {debug_log, debugger, functions})
+}
+
+fn handle_error(e: String) -> ! {
+    println!("{}", e);
+    exit(1)
+}
+
+fn interpret(config: RuntimeConfig) {
+
+    if config.debug_log {
+        println!("\n[Read (1) File]\n");
+        config.functions.iter().for_each(|f| {
+            println!("Function {}", f.signature);
+            println!("Args {:#?}", f.args);
+            f.instructions.iter().for_each(|it| println!("{}", it))
+        });
+        println!("\n\n[Start Execution]\n\n");
+    }
+
+    execute_std(config.functions, "main");
 }
 
 

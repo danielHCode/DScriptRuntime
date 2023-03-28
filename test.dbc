@@ -1,0 +1,26 @@
+func main2 std/any endArgs std/any
+loadArg 0
+call std/io/print 1
+end
+func main3 std/any endArgs std/any
+loadNum 1
+set x
+while do
+load x
+loadNum 100000
+equality st
+return
+end
+do
+load x
+loadNum 1
+binary add
+set x
+end
+load x
+call main2 1
+end
+func main std/any endArgs std/any
+loadString Hello World'
+call std/io/print 1
+end

@@ -1,6 +1,4 @@
 use std::collections::HashMap;
-use std::iter::Map;
-use std::thread::sleep;
 use crate::runtime::{Object, RuntimeObject};
 
 pub struct ObjectStorage {
@@ -25,6 +23,10 @@ impl ObjectStorage {
             Some(a) => Some(a.clone()),
             None => None
         }
+    }
+
+    pub fn borow_fields(&self, obj: &Object) -> &HashMap<String, RuntimeObject> {
+        &self.object_storage[obj.id]
     }
 
     pub fn set_field(&mut self, obj: &Object, name: String, value: RuntimeObject) {

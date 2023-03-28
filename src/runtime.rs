@@ -1,13 +1,11 @@
-mod std_lib;
+pub(crate) mod std_lib;
 mod object_storage;
 mod util;
 
 use std::collections::HashMap;
-use std::fmt::{Display, format, Formatter, Pointer, Write};
-use std::iter::Map;
+use std::fmt::{Display, Formatter, Pointer};
 use crate::runtime::object_storage::ObjectStorage;
 use crate::runtime::std_lib::get_std_library;
-use crate::Type::Void;
 
 pub enum BinaryOpCode {
     Add,
@@ -15,6 +13,7 @@ pub enum BinaryOpCode {
     Mul,
     Div
 }
+
 
 pub enum EqualityCheck {
     Eq,
@@ -33,21 +32,53 @@ pub enum Operation {
     BinaryOp(BinaryOpCode), //d
     EqualityCheck(EqualityCheck),   //d
     Native { callback: fn(&Vec<RuntimeObject>, &mut ObjectStorage) -> Result<RuntimeObject, String> },
-    If(Vec<Operation>),
-    Else(Vec<Operation>),
-    While { condition: Vec<Operation>, content: Vec<Operation> },
-    InitObject { keys: Vec<String>, template: Option<HashMap<String, Type>> },
-    InitList { init_push: u32 },
+    If(Vec<Operation>),     //d
+    Else(Vec<Operation>),   //d
+    While { condition: Vec<Operation>, content: Vec<Operation> },             //d
+    InitObject { keys: Vec<String>, template: Option<HashMap<String, Type>> },//d
+    InitList { init_push: u32 },                                              //d
     SetProperty(String),    //d
     GetProperty(String),    //d
     SetVar(String),         //d
     LoadVar(String),        //d
     MapArgTo {arg: usize, name: String},    //d
     LoadArg(usize),         //d
-    Noop
+}
+
+impl Display for Operation {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Operation::LoadConstNum(n) => f.write_fmt(format_args!("LoadConstNum({})", n)),
+            Operation::LoadConstString(_) => f.write_str("LoadConstString"),
+            Operation::LoadConstBool(_) => f.write_str("LoadConstBool"),
+            Operation::CallFunction { signature, argc } => f.write_fmt(format_args!("FunctionCall({}, {})", signature, argc)),
+            Operation::Return => f.write_str("Return"),
+            Operation::Dup => f.write_str("Dup"),
+            Operation::BinaryOp(_) => f.write_str("Binary"),
+            Operation::EqualityCheck(_) => f.write_str("EqualityCheck"),
+            Operation::Native { callback: _callback } => todo!(),
+            Operation::If(_) => todo!(),
+            Operation::Else(_) => todo!(),
+            Operation::While { condition, content } => f.write_fmt(
+                format_args!(
+                    "While({})do({})", 
+                    condition.iter().fold(String::new(), |first, a| format!("{}, {}", first, a)), 
+                    content.iter().fold(String::new(), |first, a| format!("{}, {}", first, a))
+                )),
+            Operation::InitObject { keys, template } => todo!(),
+            Operation::InitList { init_push } => todo!(),
+            Operation::SetProperty(_) => todo!(),
+            Operation::GetProperty(_) => todo!(),
+            Operation::SetVar(name) =>  f.write_fmt(format_args!("SetVar({})", name)),
+            Operation::LoadVar(name) => f.write_fmt(format_args!("LoadVar({})", name)),
+            Operation::MapArgTo { arg, name } => todo!(),
+            Operation::LoadArg(_) => f.write_str("LoadArg"),
+        }
+    }
 }
 
 #[derive(PartialEq)]
+#[derive(Debug)]
 pub enum Type {
     Num,
     Str,
@@ -96,6 +127,12 @@ pub struct Function {
     pub(crate) return_type: Type
 }
 
+impl PartialEq for Function {
+    fn eq(&self, other: &Self) -> bool {
+        self.signature == other.signature && self.args == other.args && self.instructions.len() == other.instructions.len() && self.return_type == other.return_type
+    }
+}
+
 /*
 
 Object definition:
@@ -138,6 +175,7 @@ Runtime Object
 #[derive(PartialEq)]
 pub enum RuntimeObject {
     Object(Object),
+    //Function(Function),
     Num(f64),
     List(Vec<RuntimeObject>),
     Str(String),
@@ -160,6 +198,7 @@ impl Display for RuntimeObject {
             RuntimeObject::Object(o) => {
                 o.fmt(f)
             }
+            //RuntimeObject::Function(_) => f.write_str("Function(="),
         }
     }
 }
@@ -174,6 +213,7 @@ impl Clone for RuntimeObject {
             RuntimeObject::Void => RuntimeObject::Void,
             RuntimeObject::Object(o) => RuntimeObject::Object(o.clone()),
             RuntimeObject::List(l) => RuntimeObject::List(l.iter().map(|it| it.clone()).collect())
+            //RuntimeObject::Function(f) => RuntimeObject::Function(f.clone())
         }
     }
 }
@@ -385,7 +425,6 @@ impl Runtime {
                 Operation::Return => {
                     return Ok(stack.pop().unwrap())
                 }
-                Operation::Noop => {}
                 Operation::If(content) => {
                     match stack.pop().unwrap() {
                         RuntimeObject::Bool(val) => {
@@ -436,10 +475,9 @@ impl Runtime {
                 }
                 Operation::SetVar(name) => {
                     let data = stack.pop().unwrap();
-                    variables.insert(name.to_string(), data);
-                }
+                    variables.insert(name.to_string(), data);                }
                 Operation::LoadVar(name) => {
-                    let var = variables.get(name).unwrap().clone();
+                    let var = variables[name.as_str()].clone();
                     stack.push(var);
                 }
                 Operation::Dup => {

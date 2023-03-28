@@ -1,47 +1,94 @@
-use std::collections::HashMap;
-use std::fmt::format;
-use std::io::stdin;
-use std::num::ParseFloatError;
 use std::str::FromStr;
-use std::time::SystemTime;
-use crate::Operation;
-use crate::runtime::{Function, Object, RuntimeObject, Type};
-use crate::runtime::Operation::Native;
-use crate::runtime::util::{dynamic_function, dynamic_library_function, function, library_function};
+use crate::runtime::std_lib::io_functions::{io_print, io_read, io_open_file, file_read_to_string, file_write_string};
+use crate::runtime::std_lib::str_functions::{str_split, str_replace, str_to_lower, str_to_upper};
+use crate::runtime::{Function, RuntimeObject, Type};
+use crate::runtime::util::{library_function, dynamic_library_function};
+
+use super::Object;
+
+mod io_functions;
+mod str_functions;
+
+fn assert_arg_length(args: &Vec<RuntimeObject>, size: usize) -> Result<(), String> {
+    if args.len() == size {
+        Ok(())
+    } else {
+        Err(format!("Expected {} arg but got {}", size, args.len()))
+    }
+}
+
+fn get_as_string(args: &Vec<RuntimeObject>, index: usize) -> Result<String, String>{
+    match &args[0] {
+        RuntimeObject::Str(s) => Ok(s.to_string()),
+        _ => Err(format!("Expected String at arg {}", index))
+    }
+}
+
+fn get_as_object(args: &Vec<RuntimeObject>, index:usize) -> Result<Object, String> {
+    match &args[0] {
+        RuntimeObject::Object(o) => Ok(o.clone()),
+        _ => Err(format!("Expected String at arg {}", index))
+    }
+}
 
 pub fn get_std_library() -> Vec<Function> {
     vec![
+        //io functions
         dynamic_library_function(
             "std/io/print",
-            |args, _| {
-                for arg in args {
-                    print!("{}", arg)
-                }
-                print!("\n");
-                Ok(RuntimeObject::Void)
-            },
+            io_print,
             Type::Void
         ),
         library_function(
             "std/io/read",
             vec![],
-            |_, _| {
-                let mut buffer = String::new();
-                let stdin = stdin(); // We get `Stdin` here.
-                match stdin.read_line(&mut buffer) {
-                    Ok(_) => Ok(RuntimeObject::Str(buffer)),
-                    Err(_) => Err(format!("Error while reading std in"))
-                }
-
-            },
+            io_read,
             Type::Str
         ),
+        library_function(
+            "std/io/open_file",
+            vec![Type::Str],
+            io_open_file,
+            Type::Complex(vec![])
+        ),
+        library_function(
+            "file:read_to_string",
+            vec![Type::Complex(vec![])],
+            file_read_to_string,
+            Type::Str
+        ),
+        library_function(
+            "file:write_string",
+            vec![Type::Complex(vec![]), Type::Str],
+            file_write_string,
+            Type::Void
+        ),
+        
+        //string functions
         library_function(
             "*:as_string",
             vec![Type::Void],
             |args, _| {
                 Ok(RuntimeObject::Str(format!("{}", args[0])))
             },
+            Type::Str
+        ),
+        library_function(
+            "*:replace",
+            vec![Type::Str, Type::Str, Type::Str],
+            str_replace,
+            Type::Str
+        ),
+        library_function(
+            "str:to_lower",
+            vec![Type::Str],
+            str_to_lower,
+            Type::Str
+        ),
+        library_function(
+            "str:to_upper",
+            vec![Type::Str],
+            str_to_upper,
             Type::Str
         ),
         library_function(
@@ -59,6 +106,12 @@ pub fn get_std_library() -> Vec<Function> {
                 }
             },
             Type::Num
+        ),
+        library_function(
+            "str:split",
+            vec![Type::Str, Type::Str],
+            str_split,
+            Type::List(Box::new(Type::Void))
         ),
         library_function(
             "list:get",

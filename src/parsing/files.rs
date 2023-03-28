@@ -1,28 +1,29 @@
 use std::fs::File;
 use std::io::{BufReader, Read};
-use std::process::id;
 use std::str::FromStr;
 use crate::{EqualityCheck, Operation, Type};
-use crate::runtime::BinaryOpCode;
-
-const FUNCTION_IDENTIFIER: u8 = 0;
-const GLOBAL_VAR_IDENTIFIER: u8 = 1;
-const TYPE_IDENTIFIER: u8 = 2;
+use crate::runtime::{BinaryOpCode, Function};
 
 
-
+#[no_mangle]
 fn open_binary_file(path: String) -> Vec<u8> {
     BufReader::new(File::open(path).unwrap()).buffer().iter().map(|it| it.clone()).collect()
 }
 
+#[no_mangle]
 fn validate_header(bytes: Vec<u8>) -> bool {
     String::from_utf8(bytes[0..7].to_owned()).unwrap() == "DSCRIPT"
 }
 
-fn open_text_file(path: String) -> String {
+pub fn open_text_file(path: String) -> Result<String, String> {
     let mut text = String::new();
-    File::open(path).unwrap().read_to_string(&mut text).expect("Cannot read file");
-    text
+    match File::open(path){
+        Ok(mut v) => {
+            v.read_to_string(&mut text).expect("Cannot read file");
+        },
+        Err(_) => return Err("cannot open file".to_string())
+    };
+    Ok(text)
 }
 
 fn parse_type_args(str: &str) -> Type {
@@ -107,7 +108,15 @@ fn parse_instructions(mut i: usize, words: &Vec<String>) -> Result<(Vec<Operatio
                 })
             },
             "loadString" => {
-                todo!("")
+                i+=1;
+                let mut str = String::new();
+                while !words[i].ends_with("'") {
+                    str+=words[i].as_str();
+                    i+=1;
+                }
+                str=format!("{} {}", str, words[i].to_string().strip_suffix("'").unwrap());
+
+                Operation::LoadConstString(str)
             }
             "call" => {
                 i+=1;
@@ -144,8 +153,52 @@ fn parse_instructions(mut i: usize, words: &Vec<String>) -> Result<(Vec<Operatio
                 };
                 Operation::InitList {init_push: arg}
             },
-            "@Object"
-            _ => return Err(parse_error("Invalid Token", i))
+            "@Object" => {
+                let mut names = vec![];
+                loop {
+                    i+=1;
+                    let word2 = words[i].clone();
+                    if word2 == "#" {
+                        break;
+                    }
+                    names.push(word2);
+                }
+                Operation::InitObject { keys: names, template: None }
+            },
+            "if" => {
+                match parse_scope(i, words) {
+                    Ok((ins, j)) => {
+                        i=j;
+                        Operation::If(ins)
+                    }
+                    Err(e) => return Err(e)
+                }
+            },
+            "else" => {
+                match parse_scope(i, words) {
+                    Ok((ins, j)) => {
+                        i=j;
+                        Operation::Else(ins)
+                    }
+                    Err(e) => return Err(e)
+                }
+            },
+            "while" => {
+                match parse_scope(i, words) {
+                    Ok((cond, j)) => {
+                        i=j;
+                        match parse_scope(i, words) {
+                            Ok((content, j)) => {
+                                i=j;
+                                Operation::While { condition: cond, content: content }
+                            }
+                            Err(e) => return Err(e)
+                        }
+                    }
+                    Err(e) => return Err(e)
+                }
+            }
+            _ => return Err(parse_error("Invalid Token (inner)", i))
         });
         i+=1;
     }
@@ -153,16 +206,26 @@ fn parse_instructions(mut i: usize, words: &Vec<String>) -> Result<(Vec<Operatio
     Ok((instructions, i))
 }
 
-fn parse_sections(code: String) -> Result<(), String> {
+fn parse_scope(mut i: usize, words: &Vec<String>) -> Result<(Vec<Operation>, usize), (String, usize)> {
+    i+=1;
+    assert_eq!(words[i].to_string(), "do");
+    i+=1;
+    match parse_instructions(i, words) {
+        Ok((ins, j)) => Ok((ins, j)),
+        Err(e) => Err((e.0.to_owned(), e.1.clone()))
+    }
+}
+
+pub fn parse_sections(words: &Vec<String>) -> Result<Vec<Function>, (String, usize)> {
     let mut i: usize = 0;
-    let words = code.replace("\n", " ").split(" ").map(|it| it.to_owned()).collect::<Vec<String>>();
+    let mut functions = vec![];
     while i < words.len() {
         match words[i].as_str() {
             "func" => {
 
                 //signature
                 let signature = words[i+1].clone();
-                i+=1;
+                i+=2;
 
                 //args
                 let mut args = vec![];
@@ -171,17 +234,26 @@ fn parse_sections(code: String) -> Result<(), String> {
                     i+=1;
                 }
 
+                i+=1;
+
                 //return type
                 let return_type = parse_type_args(words[i+1].as_str());
-                assert_eq!(words[i + 2], "do");
-                i+=2;
+                i+=1;
 
                 //instructions
-                let instructions = parse_instructions(i, &words);
+                match parse_instructions(i, &words) {
+                    Ok((instructions, j)) => {
+                        i=j;
+                        functions.push(Function {signature,args: Some(args), instructions, return_type })
+                    }
+                    Err(e) => return Err(e)
+                }
+
             }
-            _ => {}
+            _ => return Err(parse_error("Invalid token outside of function)", i))
         }
+        i+=1;
     }
 
-    Ok(())
+    Ok(functions)
 }
