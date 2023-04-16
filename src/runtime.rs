@@ -56,22 +56,22 @@ impl Display for Operation {
             Operation::Dup => f.write_str("Dup"),
             Operation::BinaryOp(_) => f.write_str("Binary"),
             Operation::EqualityCheck(_) => f.write_str("EqualityCheck"),
-            Operation::Native { callback: _callback } => todo!(),
-            Operation::If(_) => todo!(),
-            Operation::Else(_) => todo!(),
+            Operation::Native { callback: _callback } => f.write_str("Native"),
+            Operation::If(content) => f.write_fmt(format_args!("IfDo({})", content.iter().fold(String::new(), |a, b| format!("{}, {}", a, b)))),
+            Operation::Else(content) => f.write_fmt(format_args!("ElseDo({})", content.iter().fold(String::new(), |a, b| format!("{}, {}", a, b)))),
             Operation::While { condition, content } => f.write_fmt(
                 format_args!(
                     "While({})do({})", 
                     condition.iter().fold(String::new(), |first, a| format!("{}, {}", first, a)), 
                     content.iter().fold(String::new(), |first, a| format!("{}, {}", first, a))
                 )),
-            Operation::InitObject { keys, template } => todo!(),
-            Operation::InitList { init_push } => todo!(),
-            Operation::SetProperty(_) => todo!(),
-            Operation::GetProperty(_) => todo!(),
+            Operation::InitObject { keys: _, template: _ } => f.write_fmt(format_args!("InitObject")),
+            Operation::InitList { init_push } => f.write_fmt(format_args!("List({})", init_push)),
+            Operation::SetProperty(s) => f.write_fmt(format_args!("SetProperty({})", s)),
+            Operation::GetProperty(s) => f.write_fmt(format_args!("GetProperty({})", s)),
             Operation::SetVar(name) =>  f.write_fmt(format_args!("SetVar({})", name)),
             Operation::LoadVar(name) => f.write_fmt(format_args!("LoadVar({})", name)),
-            Operation::MapArgTo { arg, name } => todo!(),
+            Operation::MapArgTo { arg, name } => f.write_fmt(format_args!("MapArg({} to {})", arg, name)),
             Operation::LoadArg(_) => f.write_str("LoadArg"),
         }
     }
@@ -222,7 +222,7 @@ impl Clone for RuntimeObject {
 impl RuntimeObject {
     fn get_type(&self) -> Type {
         match self {
-            RuntimeObject::Object(o) => {
+            RuntimeObject::Object(_) => {
                 Type::Complex(vec![])
             }
             RuntimeObject::Num(_) => Type::Num,
@@ -282,7 +282,7 @@ fn binary_operation(first: &RuntimeObject, second: &RuntimeObject, op: &BinaryOp
                         RuntimeObject::Bool(bool) => str.to_owned()+bool.to_string().as_str(),
                         RuntimeObject::Void => str.to_owned()+"Void",
                         RuntimeObject::Object(o) => str.to_owned()+o.get_signature().as_str(),
-                        RuntimeObject::List(o) => "List<>".to_string()
+                        RuntimeObject::List(_) => "List<>".to_string()
                     }))
                 }
                 _ => Err(format!("Doing Binary Operations other than add on String does not make sense"))
@@ -325,20 +325,32 @@ pub fn execute_std(mut functions: Vec<Function>, execution_signature: &str) {
     let mut runtime = Runtime { storage: ObjectStorage::new() };
 
     match runtime.execute(&std, execution_signature, vec![]) {
-        Ok(result) => {},
+        Ok(_) => {},
         Err(e) => panic!("{}", e)
     }
 
 }
 
-struct Runtime {
-    storage: ObjectStorage
+fn dec_all(storage: &mut ObjectStorage, objects: &Vec<&RuntimeObject>) {
+    for obj in objects {
+        match obj {
+            RuntimeObject::Object(o) => storage.dec_reference_count(o),
+            _ => {}
+        }
+    }
+}
+
+pub struct Runtime {
+    pub(crate) storage: ObjectStorage
 }
 
 impl Runtime {
 
+    pub fn new() -> Runtime {
+        Runtime { storage: ObjectStorage { object_storage: vec![], allocation_table: HashMap::new() }}
+    }
 
-    fn execute(&mut self, functions: &Vec<Function>, execution_signature: &str, args: Vec<RuntimeObject>) -> Result<RuntimeObject, String> {
+    pub fn execute(&mut self, functions: &Vec<Function>, execution_signature: &str, args: Vec<RuntimeObject>) -> Result<RuntimeObject, String> {
         let function = functions
             .iter()
             .find(|it| it.signature==execution_signature)
@@ -369,7 +381,13 @@ impl Runtime {
                 Operation::CallFunction { signature, argc } => {
                     let mut args = vec![];
                     for _ in 0..argc.to_owned() {
-                        args.push(stack.pop().unwrap())
+                        args.push(match stack.pop().unwrap() {
+                            RuntimeObject::Object(o) => {
+                                self.storage.inc_reference_count(&o);
+                                RuntimeObject::Object(o)
+                            },
+                            obj => obj
+                        })
                     }
 
                     let function = match functions.iter().find(|it| it.signature == *signature) {
@@ -423,7 +441,16 @@ impl Runtime {
                 }
 
                 Operation::Return => {
-                    return Ok(stack.pop().unwrap())
+                    let return_value = match stack.pop().unwrap() {
+                        RuntimeObject::Object(o) => {
+                            self.storage.inc_reference_count(&o);
+                            RuntimeObject::Object(o)
+                        },
+                        obj => obj
+                    };
+                    dec_all(&mut self.storage, &variables.values().collect());
+                    dec_all(&mut self.storage, &stack.iter().collect());
+                    return Ok(return_value)
                 }
                 Operation::If(content) => {
                     match stack.pop().unwrap() {
@@ -513,8 +540,12 @@ impl Runtime {
 
                 Operation::SetProperty(name) => {
                     match stack.pop().unwrap() {
-                        RuntimeObject::Object(mut o) => {
+                        RuntimeObject::Object(o) => {
                             let item = stack.pop().unwrap();
+                            match &item {
+                                RuntimeObject::Object(i) => self.storage.inc_reference_count(&i),
+                                _ => {}
+                            }
                             self.storage.set_field(&o, name.to_string(), item);
                             stack.push(RuntimeObject::Object(o));
                         }
@@ -542,7 +573,7 @@ impl Runtime {
             };
         }
 
-        Ok(RuntimeObject::Void)
+        Err(format!("Function did not return but ran out of tokens ({})", execution_signature))
     }
 }
 

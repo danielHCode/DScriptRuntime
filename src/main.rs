@@ -8,6 +8,7 @@ use crate::runtime::{EqualityCheck, Function, Operation, Type};
 
 mod runtime;
 mod parsing;
+mod debugger;
 
 struct RuntimeConfig {
     debug_log: bool,
@@ -58,7 +59,13 @@ fn interpret(config: RuntimeConfig) {
         println!("\n\n[Start Execution]\n\n");
     }
 
-    execute_std(config.functions, "main");
+    if !config.debugger {
+        return execute_std(config.functions, "main");
+    }
+    debug_shell()
+
 }
+
+
 
 

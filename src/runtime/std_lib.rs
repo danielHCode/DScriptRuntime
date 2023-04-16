@@ -8,6 +8,7 @@ use super::Object;
 
 mod io_functions;
 mod str_functions;
+mod result;
 
 fn assert_arg_length(args: &Vec<RuntimeObject>, size: usize) -> Result<(), String> {
     if args.len() == size {
